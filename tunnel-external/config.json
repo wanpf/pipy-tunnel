@@ -1,0 +1,82 @@
+{
+  "loadBalancers": {
+    "127.0.0.1:6000": {
+      "mode": "rr",
+      "sticky": false,
+      "targets": {
+        "127.0.0.1:8001": 100,
+        "127.0.0.1:8002": 100,
+        "127.0.0.1:8003": 100
+      },
+      "tpsLimit": -1,
+      "bpsLimit": -1,
+      "maxConnections": 5000,
+      "idleTimeout": "300s",
+      "serviceId": "svc-1"
+    },
+    "127.0.0.2:6000": {
+      "mode": "rr",
+      "sticky": false,
+      "targets": {
+        "127.0.0.1:22": 100,
+        "127.0.0.1:8003": 100
+      },
+      "tpsLimit": -1,
+      "bpsLimit": -1,
+      "maxConnections": 5000,
+      "idleTimeout": "300s",
+      "serviceId": "svc-2"
+    },
+    "127.0.0.3:6000": {
+      "mode": "lc",
+      "sticky": false,
+      "targets": {
+        "127.0.0.1:8001": 100,
+        "127.0.0.1:8002": 100
+      },
+      "tpsLimit": -1,
+      "bpsLimit": -1,
+      "maxConnections": 5000,
+      "idleTimeout": "300s",
+      "serviceId": "svc-3"
+    }
+  },
+  "tunnel": {
+    "servers": {
+      "127.0.0.1:801": {
+        "name": "tunnel-1",
+        "weight": 100,
+        "tlsCert": "tls/server1.crt",
+        "tlsKey": "tls/server1.key",
+        "tlsCA": "tls/server1.ca"
+      },
+      "127.0.0.1:8001": {
+        "name": "tunnel-2",
+        "weight": 100
+      }
+    },
+    "policies": {
+      "connectRetry": 1
+    },
+    "healthcheck": {
+      "server": {
+        "failures": 3,
+        "interval": "3s"
+      },
+      "target": {
+        "failures": 1,
+        "interval": "15s"
+      },
+      "connectTimeout": "1s",
+      "readTimeout": "3s"
+    }
+  },
+  "healthcheck": {
+    "host": "localhost",
+    "port": 8888,
+    "interval": "3s"
+  },
+  "global": {
+    "enableDebug": false
+  }
+}
