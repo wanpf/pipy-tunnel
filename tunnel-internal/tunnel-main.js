@@ -28,7 +28,7 @@
   pipyTunnelTotalConnectionCounter = new stats.Counter('pipy_tunnel_total_connection', ['source_ip', 'destination']),
   pipyTunnelSendBytesTotalCounter = new stats.Counter('pipy_tunnel_send_bytes_total', ['source_ip', 'destination']),
   pipyTunnelReceiveBytesTotalCounter = new stats.Counter('pipy_tunnel_receive_bytes_total', ['source_ip', 'destination']),
-  
+
 ) => pipy({
   _isPing: false,
   _isTunnel: false,
@@ -59,7 +59,7 @@
     }).to(
       $=>$.link('tunneling')
     )
-  ), 
+  ),
   (
     $=>$.link('tunneling')
   )
@@ -118,13 +118,16 @@
     ),
     () => _isTunnel, (
       $=>$
-      .acceptHTTPTunnel(   
+      .acceptHTTPTunnel(
         msg => (
           _target = msg.head.path,
           new Message({ status: 200 })
         )
       ).to(
         $=>$
+        .onStart(
+          ()  =>  new Data
+        )
         .handleStreamStart(
           () => _target && (
             pipyTunnelActiveConnectionGauge.withLabels(__inbound.remoteAddress, _target).increase(),
@@ -148,7 +151,7 @@
           )
         )
       )
-    ), 
+    ),
     (
       $=>$.replaceMessage(
           new Message({ status: 404 }, 'Not Found')
