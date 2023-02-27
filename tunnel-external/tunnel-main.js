@@ -153,7 +153,7 @@
     path: _backend.path,
   })
 ).to(
-  $=>$.muxHTTP(() => _backend.server, { version: 2 }).to(
+  $=>$.muxHTTP(() => _backend, { version: 2 }).to(
     $=>$.branch(
       () => _backend.server.tlsCert, (
         $=>$.connectTLS({
