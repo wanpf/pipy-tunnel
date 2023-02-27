@@ -153,7 +153,7 @@
     path: _backend.path,
   })
 ).to(
-  $=>$.muxHTTP(() => _backend.path, { version: 1 }).to(
+  $=>$.muxHTTP(() => _backend.server, { version: 2 }).to(
     $=>$.branch(
       () => _backend.server.tlsCert, (
         $=>$.connectTLS({
@@ -253,7 +253,7 @@
 )
 .branch(
   () => Boolean(_target), (
-    $=>$.muxHTTP(() => _target, { version: 1 }).to(
+    $=>$.muxHTTP(() => _target, { version: 2 }).to(
       $=>$.branch(
         () => _tunnel?.tlsCert, (
           $=>$.connectTLS({
