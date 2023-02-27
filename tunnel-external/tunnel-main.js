@@ -58,6 +58,7 @@
   _skipTask: true,
   _probeCounter: undefined,
   _probeResult: undefined,
+  _bpsLimit: -1,
 })
 
 .pipeline('startup')
@@ -69,6 +70,7 @@
       _serviceId = config.loadBalancers[_loadBalancerAddr]?.serviceId
     ),
     _serviceId && (
+      _bpsLimit = config.loadBalancers[_loadBalancerAddr]?.bpsLimit,
       _balancer = loadBalancers[_loadBalancerAddr],
       _target = _balancer?.next?.(
         __inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
@@ -77,6 +79,23 @@
         pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
       )
     )
+  )
+)
+.branch(
+  () => _bpsLimit > 0, (
+    $=>$.throttleDataRate(
+      () => (
+        new algo.Quota(
+          _bpsLimit,
+          {
+            produce: _bpsLimit,
+            per: '1s',
+          }
+        )
+      )
+    )
+  ), (
+    $=>$
   )
 )
 .branch(
@@ -96,6 +115,23 @@
   ),
   (
     $=>$.link('pass')
+  )
+)
+.branch(
+  () => _bpsLimit > 0, (
+    $=>$.throttleDataRate(
+      () => (
+        new algo.Quota(
+          _bpsLimit,
+          {
+            produce: _bpsLimit,
+            per: '1s',
+          }
+        )
+      )
+    )
+  ), (
+    $=>$
   )
 )
 .handleStreamEnd(
