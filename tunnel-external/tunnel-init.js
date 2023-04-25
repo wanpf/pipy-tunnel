@@ -5,20 +5,20 @@
     isDebugEnabled = config?.global?.enableDebug,
 
     cacheTTL = ((val = config?.tunnel?.healthcheck?.target?.interval) => (
-      val?.indexOf('s') && (
+      (val?.indexOf('s') > 0) && (
         val.replace('s', '') * 2 + 's'
       ) ||
-      val?.indexOf('m') && (
+      (val?.indexOf('m') > 0) && (
         val.replace('m', '') * 2 + 'm'
       ) ||
       '60s'
     ))(),
 
     slotCount = ((val = config?.tunnel?.healthcheck?.target?.interval) => (
-      val?.indexOf('s') && (
+      (val?.indexOf('s') > 0) && (
         val.replace('s', '') * 1
       ) ||
-      val?.indexOf('m') && (
+      (val?.indexOf('m') > 0) && (
         val.replace('m', '') * 60
       ) ||
       60
