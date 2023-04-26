@@ -359,9 +359,7 @@
 )
 
 .task(config.healthcheck.interval)
-.onStart(() => new Message)
-.replaceMessageStart(
-  () => new MessageStart({
+.onStart(() => new Message({
     method: 'GET',
     path: '/unhealthy',
     headers: {
@@ -370,15 +368,15 @@
     }
   })
 )
-.encodeHTTPRequest()
-.connect(
-  () => `${config.healthcheck.host}:${config.healthcheck.port}`,
-  { bufferLimit: '1m' }
+.muxHTTP().to(
+  $=>$.connect(
+    () => `${config.healthcheck.host}:${config.healthcheck.port}`,
+    { bufferLimit: '1m' }
+  )
 )
-.decodeHTTPResponse()
-.handleData(
-  data => (
-    (obj = JSON.decode(data)) => (
+.replaceMessage(
+  msg => (
+    (obj = JSON.decode(msg?.body)) => (
       obj?.unhealthy && (
         unhealthyTargetCache.clear(),
         obj?.unhealthy.forEach(
@@ -389,11 +387,11 @@
             )
           )
         )
-      )
+      ),
+      new StreamEnd
     )
   )()
 )
-.replaceMessage(new StreamEnd)
 
 .task(config?.tunnel?.healthcheck?.server?.interval)
 .onStart(
@@ -409,7 +407,7 @@
           e => new Message({ path: '/', target: e })
         ),
         _probeCounter = { jobCount: jobs.length },
-        isDebugEnabled && (
+        isDebugEnabled && (jobs.length > 0) && (
           console.log(`[*Timer*] ping server count : ${jobs.length}`)
         ),
         jobs.length > 0 ? jobs : new StreamEnd
@@ -421,10 +419,11 @@
   () => !_skipTask, (
     $=>$
     .demuxQueue().to(
-      $=>$.link('ping')
-    )
-    .handleMessage(
-      () => _probeCounter.jobCount--
+      $=>$
+      .link('ping')
+      .handleStreamEnd(
+        () => _probeCounter.jobCount--
+      )
     )
   ),
   (
@@ -454,7 +453,7 @@
         ),
         probeIndex++,
         _probeCounter = { jobCount: jobs.length },
-        isDebugEnabled && (
+        isDebugEnabled && (jobs.length > 0) && (
           console.log(`[*Timer*] ping target count : ${jobs.length}`)
         ),
         jobs.length > 0 ? jobs : new StreamEnd
@@ -465,9 +464,12 @@
 .branch(
   () => !_skipTask, (
     $=>$
-    .demuxQueue().to('ping')
-    .handleMessage(
-      () => _probeCounter.jobCount--
+    .demuxQueue().to(
+      $=>$
+      .link('ping')
+      .handleStreamEnd(
+        () => _probeCounter.jobCount--
+      )
     )
   ),
   (
