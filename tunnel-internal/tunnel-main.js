@@ -35,6 +35,7 @@
   _path: undefined,
   _target: undefined,
   _serverAddr: undefined,
+  _error: null,
 })
 
 .pipeline('startup')
@@ -65,6 +66,37 @@
   )
 )
 
+.pipeline('connecting')
+.replaceMessage(
+  msg => (
+    _path = msg.head.path,
+    new Message
+  )
+)
+.demux().to(
+  $=>$
+  .replaceMessage(
+    () => [new Data, new StreamEnd]
+  )
+  .connect(() => _path,
+    {
+      connectTimeout: '1s',
+      readTimeout: '1s'
+    }
+  )
+  .replaceData(
+    () => new Data
+  )
+  .replaceStreamEnd(
+    e => (
+      (e.error === 'ConnectionRefused' || e.error === 'ConnectionTimeout') && (
+        _error.msg = e.error
+      ),
+      (e.error === "ReadTimeout") ? new Data : e
+    )
+  )
+)
+
 .pipeline('tunneling')
 .demuxHTTP().to(
   $=>$
@@ -82,31 +114,24 @@
           $=>$
           .replaceMessage(
             () => (
-              [new Message({ status: 200, headers: { 'x-pipy-probe': 'PONG' } }), new StreamEnd]
+              new Message({ status: 200, headers: { 'x-pipy-probe': 'PONG' } })
             )
           )
         ), (
           $=>$
           .replaceMessage(
-            () => [new Message, new StreamEnd]
-          )
-          .connect(() => _path,
-            {
-              connectTimeout: '1s',
-              readTimeout: '1s'
-            }
-          )
-          .replaceData(
             () => (
-              new Data
+              _error = {},
+              new Message({path: _path})
             )
           )
+          .link('connecting')
           .replaceStreamEnd(
-            (e) => (
+            () => (
               isDebugEnabled && (
-                console.log(`[*ping*] target: ${_path}, event: ${e}, error: ${e.error || 'NOERR'}`)
+                console.log(`[*ping*] target: ${_path}, error: ${_error?.msg || 'NOERR'}`)
               ),
-              (e.error === 'ConnectionRefused' || e.error === 'ConnectionTimeout') ? (
+              _error?.msg ? (
                 new Message({ status: 200, headers: { 'x-pipy-probe': 'FAIL' } })
               ) : (
                 new Message({ status: 200, headers: { 'x-pipy-probe': 'PONG' } })

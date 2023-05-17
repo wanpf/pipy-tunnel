@@ -72,8 +72,7 @@
     _serviceId && (
       _bpsLimit = config.loadBalancers[_loadBalancerAddr]?.bpsLimit,
       _balancer = loadBalancers[_loadBalancerAddr],
-      _target = _balancer?.next?.(
-        __inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
+      _target = _balancer?.next?.(__inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
       _target?.id && (_backend = fullTargetStructs[_target.id]) && (
         pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
         pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
@@ -112,8 +111,7 @@
     $=>$.replaceStreamStart(
       () => new StreamEnd('ConnectionReset')
     )
-  ),
-  (
+  ), (
     $=>$.link('pass')
   )
 )
@@ -162,10 +160,9 @@
             key: _backend.server.tlsKey,
           }),
           trusted: listIssuingCA,
-        }).to($=>$.link('upstream'))
-      ),
-      (
-        $=>$.link('upstream')
+        }).to($ => $.link('upstream'))
+      ), (
+          $=>$.link('upstream')
       )
     )
   )
@@ -270,8 +267,7 @@
               }
             )
           )
-        ),
-        (
+        ), (
           $=>$.connect(() => _target,
             {
               connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
@@ -281,63 +277,55 @@
         )
       )
     )
-    .replaceMessage(
+    .handleMessage(
       msg => (
         msg?.head?.headers?.['x-pipy-probe'] === 'PONG' && (_probeResult = 1),
         msg?.head?.headers?.['x-pipy-probe'] === 'FAIL' && (_probeResult = 0),
-        new StreamEnd
-      )
-    )
-    .replaceStreamEnd(
-      (e) => (
-        (key = _path + '@' + _target) => (
-          (e.error === 'ConnectionRefused' || e.error === 'ConnectionTimeout') && (
-            _probeResult = -1
-          ),
-          (_probeResult === 1) ? (
-            isDebugEnabled && (
-              console.log(`[*ping OK*] server: ${_target}, target: ${_path}`)
-            ),
-            delete pingFailures[key],
-            _path === '/' ? (
-              unhealthyServers.delete(_target),
-              setTunnelHealthy(_target, 1)
+        (
+          (key = _path + '@' + _target) => (
+            (_probeResult === 1) ? (
+              isDebugEnabled && (
+                console.log(`[*ping OK*] server: ${_target}, target: ${_path}`)
+              ),
+              delete pingFailures[key],
+              _path === '/' ? (
+                unhealthyServers.delete(_target),
+                setTunnelHealthy(_target, 1)
+              ) : (
+                unhealthyTargets.delete(key),
+                setTargetHealthy(key, 1)
+              )
             ) : (
-              unhealthyTargets.delete(key),
-              setTargetHealthy(key, 1)
-            )
-          ) : (
-            pingFailures[key] = (pingFailures[key] | 0) + 1,
-            isDebugEnabled && (
-              console.log(`[*ping FAIL*] server: ${_target}, target: ${_path}, times: ${pingFailures[key]}`)
-            ),
-            (_path === '/') ? (
-              (pingFailures[key] >= config.tunnel.healthcheck.server.failures) && (
-                pingFailures[key] = config.tunnel.healthcheck.server.failures,
-                unhealthyServers.add(_target),
-                setTunnelHealthy(_target, 0),
-                serverTargetStructs[_target]?.forEach?.(
-                  t => (
-                    unhealthyTargets.add(t),
-                    setTargetHealthy(t, 0)
+              pingFailures[key] = (pingFailures[key] | 0) + 1,
+              isDebugEnabled && (
+                console.log(`[*ping FAIL*] server: ${_target}, target: ${_path}, times: ${pingFailures[key]}`)
+              ),
+              (_path === '/') ? (
+                (pingFailures[key] >= config.tunnel.healthcheck.server.failures) && (
+                  pingFailures[key] = config.tunnel.healthcheck.server.failures,
+                  unhealthyServers.add(_target),
+                  setTunnelHealthy(_target, 0),
+                  serverTargetStructs[_target]?.forEach?.(
+                    t => (
+                      unhealthyTargets.add(t),
+                      setTargetHealthy(t, 0)
+                    )
                   )
                 )
-              )
-            ) : (
-              (pingFailures[key] >= config.tunnel.healthcheck.target.failures) && (
-                pingFailures[key] = config.tunnel.healthcheck.target.failures,
-                unhealthyTargets.add(key),
-                setTargetHealthy(key, 0)
+              ) : (
+                (pingFailures[key] >= config.tunnel.healthcheck.target.failures) && (
+                  pingFailures[key] = config.tunnel.healthcheck.target.failures,
+                  unhealthyTargets.add(key),
+                  setTargetHealthy(key, 0)
+                )
               )
             )
-          ),
-          e
-        )
-      )()
+          )
+        )()
+      )
     )
-  ),
-  (
-    $=>$
+  ), (
+      $=>$
   )
 )
 
@@ -359,7 +347,8 @@
 )
 
 .task(config.healthcheck.interval)
-.onStart(() => new Message({
+.onStart(
+  () => new Message({
     method: 'GET',
     path: '/unhealthy',
     headers: {
@@ -418,16 +407,18 @@
 .branch(
   () => !_skipTask, (
     $=>$
-    .demuxQueue().to(
+    .demux().to(
       $=>$
       .link('ping')
-      .handleStreamEnd(
-        () => _probeCounter.jobCount--
+      .replaceStreamEnd(
+        () => (
+          _probeCounter.jobCount--,
+          new Message
+        )
       )
     )
-  ),
-  (
-    $=>$
+  ), (
+      $=>$
   )
 )
 .wait(
@@ -464,16 +455,18 @@
 .branch(
   () => !_skipTask, (
     $=>$
-    .demuxQueue().to(
+    .demux().to(
       $=>$
       .link('ping')
-      .handleStreamEnd(
-        () => _probeCounter.jobCount--
+      .replaceStreamEnd(
+        () => (
+          _probeCounter.jobCount--,
+          new Message
+        )
       )
     )
-  ),
-  (
-    $=>$
+  ), (
+      $=>$
   )
 )
 .wait(

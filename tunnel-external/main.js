@@ -1,22 +1,18 @@
 ((
   { config } = pipy.solve('config.js'),
-
   { loadBalancers } = pipy.solve('tunnel-init.js'),
+) => (pipy()
 
-  configuration = pipy(),
-) => (
-
-  Object.keys(config.loadBalancers || {}).forEach(
+.repeat(
+  Object.entries(config.loadBalancers),
+  ($, [addr, v])=>$
+  .listen(addr, { protocol: 'tcp', ...v })
+  .onStart(new Data)
+  .use('tunnel-main.js', 'startup'),
+)
+.branch(
+  (Object.keys(config.loadBalancers || {}).forEach(
     e => (
-      configuration.listen(e, {
-        protocol: 'tcp',
-        maxConnections: config.loadBalancers[e]?.maxConnections,
-        readTimeout: config.loadBalancers[e]?.readTimeout,
-        writeTimeout: config.loadBalancers[e]?.writeTimeout,
-        idleTimeout: config.loadBalancers[e]?.idleTimeout,
-      }).onStart(
-        () => new Data
-      ).use('tunnel-main.js', 'startup'),
       (e.startsWith(':::')) && (
         (port = e.replace(':::', '')) => (
           loadBalancers[port] = loadBalancers[e],
@@ -36,12 +32,8 @@
         )
       )()
     )
-  ),
-
-  (__thread.id === 0) && (
-    configuration.listen(config.healthcheck.port).use('tunnel-main.js', 'healthcheck')
-  ),
-
-  configuration
+  ), __thread.id === 0),
+  $=>$.listen(config.healthcheck.port).use('tunnel-main.js', 'healthcheck')
+)
 
 ))()

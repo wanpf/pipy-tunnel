@@ -4,6 +4,7 @@
       "mode": "rr",
       "sticky": false,
       "targets": {
+        "127.0.0.1:22": 100,
         "127.0.0.1:8002": 100,
         "127.0.0.1:8080": 100
       },
@@ -63,7 +64,7 @@
         "interval": "15s"
       },
       "connectTimeout": "1s",
-      "readTimeout": "3s"
+      "readTimeout": "5s"
     }
   },
   "healthcheck": {
