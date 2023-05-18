@@ -35,7 +35,6 @@
   _path: undefined,
   _target: undefined,
   _serverAddr: undefined,
-  _error: null,
 })
 
 .pipeline('startup')
@@ -80,8 +79,8 @@
   )
   .connect(() => _path,
     {
-      connectTimeout: '1s',
-      readTimeout: '1s'
+      connectTimeout: '0.1s',
+      readTimeout: '0.1s'
     }
   )
   .replaceData(
@@ -89,10 +88,9 @@
   )
   .replaceStreamEnd(
     e => (
-      (e.error === 'ConnectionRefused' || e.error === 'ConnectionTimeout') && (
-        _error.msg = e.error
-      ),
-      (e.error === "ReadTimeout") ? new Data : e
+      (!e.error || e.error === "ReadTimeout")
+        ? new Message({ status: 200, target: _path, error: e.error || '', headers: { 'x-pipy-probe': 'PONG' } })
+        : new Message({ status: 200, target: _path, error: e.error, headers: { 'x-pipy-probe': 'FAIL' } })
     )
   )
 )
@@ -121,20 +119,14 @@
           $=>$
           .replaceMessage(
             () => (
-              _error = {},
               new Message({path: _path})
             )
           )
           .link('connecting')
-          .replaceStreamEnd(
-            () => (
+          .handleMessage(
+            msg => (
               isDebugEnabled && (
-                console.log(`[*ping*] target: ${_path}, error: ${_error?.msg || 'NOERR'}`)
-              ),
-              _error?.msg ? (
-                new Message({ status: 200, headers: { 'x-pipy-probe': 'FAIL' } })
-              ) : (
-                new Message({ status: 200, headers: { 'x-pipy-probe': 'PONG' } })
+                console.log('[*ping*] target:', _path, msg?.head)
               )
             )
           )
