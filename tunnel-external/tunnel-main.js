@@ -43,6 +43,84 @@
     )()
   ),
 
+  iplistJson = JSON.decode(pipy.load('ip-list.json')),
+
+  parseIpList = ipList => (
+    (ips, ipRanges) => (
+      (ipList || []).forEach(
+        o => (
+          o.indexOf('/') > 0 ? (
+            !ipRanges && (ipRanges = []),
+            ipRanges.push(new Netmask(o))
+          ) : (
+            !ips && (ips = {}),
+            ips[o] = true
+          )
+        )
+      ),
+      (ips || ipRanges) && { ips, ipRanges }
+    )
+  )(),
+
+  parseServiceIpList = ipList => (
+    (
+      result = Object.fromEntries(Object.entries(ipList || {}).map(([k, v]) => [k, parseIpList(v)]))
+    ) => (
+      Object.keys(result).length > 0 ? result : undefined
+    )
+  )(),
+
+  blackList = {
+    global: parseIpList(iplistJson?.blacklist?.ips),
+    service: parseServiceIpList(iplistJson?.blacklist?.serviceName)
+  },
+
+  whiteList = {
+    global: parseIpList(iplistJson?.whitelist?.ips),
+    service: parseServiceIpList(iplistJson?.whitelist?.serviceName)
+  },
+
+  blackWhiteList = {
+    blackList,
+    whiteList
+  },
+
+  checkIpList = (serviceName, ip) => (
+    (
+      white = blackWhiteList?.whiteList,
+      black = blackWhiteList?.blackList,
+      blackMode = true,
+      block = false,
+      pass = false,
+    ) => (
+      white?.global && (
+        blackMode = false,
+        (white.global.ips?.[ip] && (pass = true)) || (
+          pass = white.global.ipRanges?.find?.(r => r.contains(ip))
+        )
+      ),
+      !pass && white?.service?.[serviceName] && (
+        blackMode = false,
+        (white.service[serviceName].ips?.[ip] && (pass = true)) || (
+          pass = white.service[serviceName].ipRanges?.find?.(r => r.contains(ip))
+        )
+      ),
+      blackMode && (
+        black?.global && (
+          (black.global.ips?.[ip] && (block = true)) || (
+            block = black.global.ipRanges?.find?.(r => r.contains(ip))
+          )
+        ),
+        !block && black?.service?.[serviceName] && (
+          (black.service[serviceName].ips?.[ip] && (block = true)) || (
+            block = black.service[serviceName].ipRanges?.find?.(r => r.contains(ip))
+          )
+        )
+      ),
+      blackMode ? Boolean(!block) : Boolean(pass)
+    )
+  )(),
+
 ) => pipy({
   _reqSize: 0,
   _resSize: 0,
@@ -59,7 +137,29 @@
   _probeCounter: undefined,
   _probeResult: undefined,
   _bpsLimit: -1,
+  _isBlocked: false,
 })
+
+.watch('ip-list.json')
+.onStart(() => (
+  (
+    update = JSON.decode(pipy.load('ip-list.json')),
+    blackList = {
+      global: parseIpList(update?.blacklist?.ips),
+      service: parseServiceIpList(update?.blacklist?.serviceName)
+    },
+    whiteList = {
+      global: parseIpList(update?.whitelist?.ips),
+      service: parseServiceIpList(update?.whitelist?.serviceName)
+    },
+  ) => (
+    blackWhiteList = {
+      blackList,
+      whiteList
+    },
+    new StreamEnd
+  )
+)())
 
 .pipeline('startup')
 .handleStreamStart(
@@ -72,8 +172,9 @@
     _serviceId && (
       _bpsLimit = config.loadBalancers[_loadBalancerAddr]?.bpsLimit,
       _balancer = loadBalancers[_loadBalancerAddr],
-      _target = _balancer?.next?.(__inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
+      _target = _balancer?.borrow?.(__inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
       _target?.id && (_backend = fullTargetStructs[_target.id]) && (
+        _isBlocked = !checkIpList(_backend.load.serviceName, __inbound.remoteAddress),
         pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
         pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
       )
@@ -101,13 +202,13 @@
   isDebugEnabled, (
     $=>$.handleStreamStart(
       () => (
-        console.log(`[*New tunnel*]' __thread.id: ${__thread.id}, LB: ${_loadBalancerAddr}, server: ${_backend?.server?.target}, target: ${_backend?.path}`)
+        console.log(`[*New tunnel*]' __thread.id: ${__thread.id}, LB: ${_loadBalancerAddr}, server: ${_backend?.server?.target}, target: ${_backend?.path}, blocked: ${_isBlocked}, clientIp: ${__inbound.remoteAddress}`)
       )
     )
   )
 )
 .branch(
-  () => !Boolean(_backend), (
+  () => _isBlocked || !Boolean(_backend), (
     $=>$.replaceStreamStart(
       () => new StreamEnd('ConnectionReset')
     )
@@ -202,7 +303,7 @@
     pipySendTunnelBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
-.connect(() => _backend.server.target, { retryCount: config.tunnel.policies.connectRetry })
+.connect(() => _backend.server.target, { connectTimeout: 3, retryCount: config.tunnel.policies.connectRetry })
 .handleData(
   data => (
     _resSize += data.size,

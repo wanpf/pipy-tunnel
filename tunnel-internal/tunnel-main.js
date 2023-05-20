@@ -156,7 +156,7 @@
             pipyTunnelSendBytesTotalCounter.withLabels(__inbound.remoteAddress, _target).increase(data.size)
           )
         )
-        .connect(() => _target, { retryCount: config.policies?.connectRetry })
+        .connect(() => _target, { connectTimeout: 3, retryCount: config.policies?.connectRetry })
         .handleData(
           data => _target && (
             pipyTunnelReceiveBytesTotalCounter.withLabels(__inbound.remoteAddress, _target).increase(data.size)

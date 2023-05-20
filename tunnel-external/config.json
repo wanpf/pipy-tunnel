@@ -11,10 +11,11 @@
       "bpsLimit": -1,
       "maxConnections": -1,
       "idleTimeout": "300s",
-      "serviceId": "svc-1"
+      "serviceId": 1,
+      "serviceName": "svc-1"
     },
     ":::7000": {
-      "mode": "rr",
+      "mode": "lc",
       "sticky": false,
       "targets": {
         "127.0.0.1:22": 100
@@ -22,10 +23,11 @@
       "bpsLimit": -1,
       "maxConnections": -1,
       "idleTimeout": "300s",
-      "serviceId": "svc-2"
+      "serviceId": 2,
+      "serviceName": "svc-2"
     },
     "0.0.0.0:8000": {
-      "mode": "lc",
+      "mode": "rr",
       "sticky": false,
       "targets": {
         "127.0.0.1:22": 100,
@@ -34,7 +36,8 @@
       "bpsLimit": -1,
       "maxConnections": -1,
       "idleTimeout": "300s",
-      "serviceId": "svc-3"
+      "serviceId": 3,
+      "serviceName": "svc-3"
     }
   },
   "tunnel": {
@@ -52,7 +55,7 @@
       }
     },
     "policies": {
-      "connectRetry": 1
+      "connectRetry": 0
     },
     "healthcheck": {
       "server": {
