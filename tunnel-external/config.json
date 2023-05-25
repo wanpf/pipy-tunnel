@@ -5,53 +5,25 @@
       "sticky": false,
       "targets": {
         "127.0.0.1:22": 100,
-        "127.0.0.1:8002": 100,
-        "127.0.0.1:8080": 100
+        "127.0.0.1:33": 100
       },
       "bpsLimit": -1,
       "maxConnections": -1,
       "idleTimeout": "300s",
       "serviceId": 1,
       "serviceName": "svc-1"
-    },
-    ":::7000": {
-      "mode": "lc",
-      "sticky": false,
-      "targets": {
-        "127.0.0.1:22": 100
-      },
-      "bpsLimit": -1,
-      "maxConnections": -1,
-      "idleTimeout": "300s",
-      "serviceId": 2,
-      "serviceName": "svc-2"
-    },
-    "0.0.0.0:8000": {
-      "mode": "rr",
-      "sticky": false,
-      "targets": {
-        "127.0.0.1:22": 100,
-        "127.0.0.1:8002": 100
-      },
-      "bpsLimit": -1,
-      "maxConnections": -1,
-      "idleTimeout": "300s",
-      "serviceId": 3,
-      "serviceName": "svc-3"
     }
   },
   "tunnel": {
+    "reverseMode": true,
     "servers": {
-      "127.0.0.1:801": {
+      "0.0.0.0:8000": {
         "name": "tunnel-1",
+        "shadowPort": 8100,
         "weight": 100,
         "tlsCert": "tls/server1.crt",
         "tlsKey": "tls/server1.key",
         "tlsCA": "tls/server1.ca"
-      },
-      "127.0.0.1:8001": {
-        "name": "tunnel-2",
-        "weight": 100
       }
     },
     "policies": {
@@ -73,7 +45,7 @@
   "healthcheck": {
     "host": "localhost",
     "port": 8888,
-    "interval": "3s"
+    "interval": "1s"
   },
   "global": {
     "enableDebug": false
