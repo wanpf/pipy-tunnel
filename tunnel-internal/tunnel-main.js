@@ -147,24 +147,24 @@
         )
         .handleStreamStart(
           () => _target && (
-            pipyTunnelActiveConnectionGauge.withLabels(__inbound.remoteAddress, _target).increase(),
-            pipyTunnelTotalConnectionCounter.withLabels(__inbound.remoteAddress, _target).increase()
+            pipyTunnelActiveConnectionGauge.withLabels(__inbound?.remoteAddress || config?.reverseServer?.target, _target).increase(),
+            pipyTunnelTotalConnectionCounter.withLabels(__inbound?.remoteAddress || config?.reverseServer?.target, _target).increase()
           )
         )
         .handleData(
           data => _target && (
-            pipyTunnelSendBytesTotalCounter.withLabels(__inbound.remoteAddress, _target).increase(data.size)
+            pipyTunnelSendBytesTotalCounter.withLabels(__inbound?.remoteAddress || config?.reverseServer?.target, _target).increase(data.size)
           )
         )
         .connect(() => _target, { connectTimeout: 3, retryCount: config.policies?.connectRetry })
         .handleData(
           data => _target && (
-            pipyTunnelReceiveBytesTotalCounter.withLabels(__inbound.remoteAddress, _target).increase(data.size)
+            pipyTunnelReceiveBytesTotalCounter.withLabels(__inbound?.remoteAddress || config?.reverseServer?.target, _target).increase(data.size)
           )
         )
         .handleStreamEnd(
           () => (
-            _target && pipyTunnelActiveConnectionGauge.withLabels(__inbound.remoteAddress, _target).decrease()
+            _target && pipyTunnelActiveConnectionGauge.withLabels(__inbound?.remoteAddress || config?.reverseServer?.target, _target).decrease()
           )
         )
       )
