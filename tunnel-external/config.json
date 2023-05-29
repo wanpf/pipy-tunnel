@@ -47,6 +47,40 @@
     "port": 8888,
     "interval": "1s"
   },
+  "healthcheckLog": [
+    {
+      "url": "http://192.168.123.1:8123/?query=insert%20into%20healthcheckLog(message)%20format%20JSONAsString",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Basic ZGVmYXVsdDoxMjM0NTY="
+      },
+      "batch": {
+        "timeout": 1,
+        "interval": 1,
+        "size": 100,
+        "prefix": "[",
+        "postfix": "]",
+        "separator": ","
+      }
+    }
+  ],
+  "accessLog": [
+    {
+      "url": "http://192.168.123.1:8123/?query=insert%20into%20log(message)%20format%20JSONAsString",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Basic ZGVmYXVsdDoxMjM0NTY="
+      },
+      "batch": {
+        "timeout": 1,
+        "interval": 1,
+        "size": 100,
+        "prefix": "[",
+        "postfix": "]",
+        "separator": ","
+      }
+    }
+  ],
   "global": {
     "enableDebug": false
   }

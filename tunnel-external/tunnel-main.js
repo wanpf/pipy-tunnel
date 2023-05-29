@@ -31,14 +31,49 @@
   pipySendTunnelBytesTotalCounter = new stats.Counter('pipy_send_tunnel_bytes_total', ['serviceId', 'tunnelName', 'target']),
   pipyReceiveTunnelBytesTotalCounter = new stats.Counter('pipy_receive_tunnel_bytes_total', ['serviceId', 'tunnelName', 'target']),
 
+  logger = config?.healthcheckLog?.reduce?.(
+    (logger, target) => (
+      logger.toHTTP(
+        target.url, {
+          headers: target.headers,
+          batch: target.batch
+        }
+      )
+    ),
+    new logging.JSONLogger('healthcheck')
+  ),
+
+  log = (upstream, target, status) => (
+    logger?.log?.({
+      upstream: upstream,
+      target: target,
+      state: (status === 1) ? 'healthy' : 'unhealthy',
+      timestamp: Date.now(),
+    })
+  ),
+
+  accessLog = config?.accessLog?.reduce?.(
+    (logger, target) => (
+      logger.toHTTP(
+        target.url, {
+          headers: target.headers,
+          batch: target.batch
+        }
+      )
+    ),
+    new logging.JSONLogger('access')
+  ),
+
   setTunnelHealthy = (target, status) => (
-    pipyTunnelHealthyGauge.withLabels(tunnelServers[target]?.name).set(status)
+    pipyTunnelHealthyGauge.withLabels(tunnelServers[target]?.name).set(status),
+    log(tunnelServers[target]?.name, '', status)
   ),
 
   setTargetHealthy = (key, status) => (
     key && (
       (items = key.split('@')) => (
-        pipyTunnelTargetHealthyGauge.withLabels(tunnelServers[items[1]]?.name, items[0]).set(status)
+        pipyTunnelTargetHealthyGauge.withLabels(tunnelServers[items[1]]?.name, items[0]).set(status),
+        log(tunnelServers[items[1]]?.name, items[0], status)
       )
     )()
   ),
@@ -164,6 +199,7 @@
   _serverPromises: null,
   _targetPromises: null,
   _resolve: null,
+  _accessLogStruct: null,
 })
 
 .branch(
@@ -256,6 +292,14 @@
 .pipeline('startup')
 .handleStreamStart(
   () => (
+    accessLog && (
+      _accessLogStruct = {trace: {id: algo.uuid()}},
+      _accessLogStruct.localAddr = __inbound.localAddress,
+      _accessLogStruct.localPort = __inbound.localPort,
+      _accessLogStruct.remoteAddr = __inbound.remoteAddress,
+      _accessLogStruct.remotePort = __inbound.remotePort,
+      _accessLogStruct.reqTime = Date.now()
+    ),
     _loadBalancerAddr = `${__inbound.localAddress}:${__inbound.localPort}`,
     (_serviceId = config.loadBalancers[_loadBalancerAddr]?.serviceId) || (
       _loadBalancerAddr = __inbound.localPort,
@@ -269,9 +313,18 @@
         _tunnel = _backend.server,
         _isBlocked = !checkIpList(_backend.load.serviceName, __inbound.remoteAddress),
         pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
-        pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
+        pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
+        accessLog && (
+          _accessLogStruct.tunnel = {
+            serviceName: config.loadBalancers[_loadBalancerAddr]?.serviceName,
+            tunnelName: _backend.server.name,
+            target: _backend.path,
+            blocked: _isBlocked,
+          }
+        )
       )
-    )
+    ),
+    accessLog && accessLog.log(_accessLogStruct)
   )
 )
 .branch(
@@ -375,6 +428,12 @@
 )
 .handleStreamEnd(
   (e) => (
+    accessLog && (
+      _accessLogStruct.reqSize = _reqRawSize,
+      _accessLogStruct.resSize = _resRawSize,
+      _accessLogStruct.endTime = Date.now(),
+      accessLog.log(_accessLogStruct)
+    ),
     (_reqRawSize > 0 && _resRawSize === 0) ? (
       accessFailures[_backend.key] = (accessFailures[_backend.key] | 0) + 1,
       isDebugEnabled && (
