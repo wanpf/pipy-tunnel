@@ -1,16 +1,10 @@
 {
-  "servers": {
-    "127.0.0.1:801": {
-      "maxConnections": -1,
-      "idleTimeout": "300s",
-      "tlsCert": "tls/server1.crt",
-      "tlsKey": "tls/server1.key",
-      "tlsCA": "tls/server1.ca"
-    },
-    "127.0.0.1:8001": {
-      "maxConnections": -1,
-      "idleTimeout": "300s"
-    }
+  "reverseServer": {
+    "target": "127.0.0.1:8000",
+    "idleTimeout": "300s",
+    "tlsCert": "tls/server1.crt",
+    "tlsKey": "tls/server1.key",
+    "tlsCA": "tls/server1.ca"
   },
   "policies": {
     "connectRetry": 1

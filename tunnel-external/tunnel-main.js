@@ -121,6 +121,30 @@
     )
   )(),
 
+  swapStructs = {},
+
+  listIssuingCA = [],
+
+  tlsConfig = (
+    (tls = {}) => (
+      Object.entries(config?.tunnel?.servers || {}).map(
+        ([k, v]) => (
+          tls[k] = {
+            cert: v.tlsCert && new crypto.Certificate(pipy.load(v.tlsCert)),
+            key: v.tlsKey && new crypto.PrivateKey(pipy.load(v.tlsKey)),
+            ca: v.tlsCA && new crypto.Certificate(pipy.load(v.tlsCA)),
+          },
+          (!tls[k].cert || !tls[k].key) && (
+            console.log(`[*warning*] server: ${k} missing tls config.`),
+            delete tls[k]
+          ),
+          tls[k]?.ca && listIssuingCA.push(tls[k].ca)
+        )
+      ),
+      tls
+    )
+  )(),
+
 ) => pipy({
   _reqSize: 0,
   _resSize: 0,
@@ -134,11 +158,79 @@
   _serviceId: undefined,
   _loadBalancerAddr: undefined,
   _skipTask: true,
-  _probeCounter: undefined,
   _probeResult: undefined,
   _bpsLimit: -1,
   _isBlocked: false,
+  _serverPromises: null,
+  _targetPromises: null,
+  _resolve: null,
 })
+
+.branch(
+  Boolean(config?.tunnel?.reverseMode), ($=>$
+    .repeat(
+      Object.entries(config?.tunnel?.servers || {}),
+      ($, [addr, v])=>$
+      .listen(addr, { protocol: 'tcp', readTimeout: 60, idleTimeout: 60, ...v })
+      .onStart(new Data)
+      .branch(
+        () => tlsConfig[addr], ($=>$
+          .acceptTLS({
+            certificate: () => ({
+              cert: tlsConfig[addr].cert,
+              key: tlsConfig[addr].key
+            }),
+            trusted: listIssuingCA
+          }).to($=>$
+            .link(() => swapStructs[addr] = new Swap)
+            .handleStreamEnd(
+              () => (
+                swapStructs[addr] = null
+              )
+            )
+          )
+        ), (
+          $=>$
+          .link(() => swapStructs[addr] = new Swap)
+          .handleStreamEnd(
+            () => (
+              swapStructs[addr] = null
+            )
+          )
+        )
+      )
+      .listen(v.shadowPort, { protocol: 'tcp', readTimeout: 60, idleTimeout: 60, ...v })
+      .onStart(new Data)
+      .branch(
+        () => swapStructs[addr], (
+          $=>$.link(() => swapStructs[addr])
+        ), (
+          $=>$
+          .replaceStreamStart(
+            () => new StreamEnd
+          )
+        )
+      )
+    )
+  )
+)
+
+.pipeline('shadow')
+.onStart(new Data)
+.muxHTTP(() => _tunnel, { version: 2 }).to($=>$
+  .branch(
+    () => _backend, (
+      $=>$.link('upstream')
+    ), (
+      $=>$.connect(() => '127.0.0.1:' + _tunnel?.shadowPort,
+        {
+          connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
+          readTimeout: config?.tunnel?.healthcheck.readTimeout
+        }
+      )
+    )
+  )
+)
 
 .watch('ip-list.json')
 .onStart(() => (
@@ -174,6 +266,7 @@
       _balancer = loadBalancers[_loadBalancerAddr],
       _target = _balancer?.borrow?.(__inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
       _target?.id && (_backend = fullTargetStructs[_target.id]) && (
+        _tunnel = _backend.server,
         _isBlocked = !checkIpList(_backend.load.serviceName, __inbound.remoteAddress),
         pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
         pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
@@ -202,7 +295,7 @@
   isDebugEnabled, (
     $=>$.handleStreamStart(
       () => (
-        console.log(`[*New tunnel*]' __thread.id: ${__thread.id}, LB: ${_loadBalancerAddr}, server: ${_backend?.server?.target}, target: ${_backend?.path}, blocked: ${_isBlocked}, clientIp: ${__inbound.remoteAddress}`)
+        console.log(`[*New tunnel*]' __thread.id: ${__thread.id}, LB: ${_loadBalancerAddr}, server: ${_tunnel?.target}, target: ${_backend?.path}, blocked: ${_isBlocked}, clientIp: ${__inbound.remoteAddress}`)
       )
     )
   )
@@ -251,19 +344,25 @@
     method: 'CONNECT',
     path: _backend.path,
   })
-).to(
-  $=>$.muxHTTP(() => _backend, { version: 2 }).to(
-    $=>$.branch(
-      () => _backend.server.tlsCert, (
-        $=>$.connectTLS({
-          certificate: () => ({
-            cert: _backend.server.tlsCert,
-            key: _backend.server.tlsKey,
-          }),
-          trusted: listIssuingCA,
-        }).to($ => $.link('upstream'))
-      ), (
-          $=>$.link('upstream')
+).to($=>$
+  .branch(
+    () => _tunnel?.shadowPort, (
+      $=>$.link('shadow')
+    ), (
+      $=>$.muxHTTP(() => _backend, { version: 2 }).to(
+        $=>$.branch(
+          () => _backend.server.tlsCert, (
+            $=>$.connectTLS({
+              certificate: () => ({
+                cert: _backend.server.tlsCert,
+                key: _backend.server.tlsKey,
+              }),
+              trusted: listIssuingCA,
+            }).to($=>$.link('upstream'))
+          ), (
+            $=>$.link('upstream')
+          )
+        )
       )
     )
   )
@@ -303,7 +402,13 @@
     pipySendTunnelBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
-.connect(() => _backend.server.target, { connectTimeout: 3, retryCount: config.tunnel.policies.connectRetry })
+.branch(
+  () => _tunnel?.shadowPort, (
+    $=>$.connect(() => '127.0.0.1:' + _tunnel?.shadowPort, { connectTimeout: 1, retryCount: 0 })
+  ), (
+    $=>$.connect(() => _backend.server.target, { connectTimeout: 3, retryCount: config.tunnel.policies.connectRetry })
+  )
+)
 .handleData(
   data => (
     _resSize += data.size,
@@ -350,9 +455,15 @@
   )
 )
 .branch(
+  () => _tunnel?.shadowPort, (
+    $=>$
+    .link('shadow')
+    .link('pong')
+  ),
   () => Boolean(_target), (
     $=>$.muxHTTP(() => _target, { version: 2 }).to(
-      $=>$.branch(
+      $=>$
+      .branch(
         () => _tunnel?.tlsCert, (
           $=>$.connectTLS({
             certificate: () => ({
@@ -378,55 +489,58 @@
         )
       )
     )
-    .handleMessage(
-      msg => (
-        msg?.head?.headers?.['x-pipy-probe'] === 'PONG' && (_probeResult = 1),
-        msg?.head?.headers?.['x-pipy-probe'] === 'FAIL' && (_probeResult = 0),
-        (
-          (key = _path + '@' + _target) => (
-            (_probeResult === 1) ? (
-              isDebugEnabled && (
-                console.log(`[*ping OK*] server: ${_target}, target: ${_path}`)
-              ),
-              delete pingFailures[key],
-              _path === '/' ? (
-                unhealthyServers.delete(_target),
-                setTunnelHealthy(_target, 1)
-              ) : (
-                unhealthyTargets.delete(key),
-                setTargetHealthy(key, 1)
-              )
-            ) : (
-              pingFailures[key] = (pingFailures[key] | 0) + 1,
-              isDebugEnabled && (
-                console.log(`[*ping FAIL*] server: ${_target}, target: ${_path}, times: ${pingFailures[key]}`)
-              ),
-              (_path === '/') ? (
-                (pingFailures[key] >= config.tunnel.healthcheck.server.failures) && (
-                  pingFailures[key] = config.tunnel.healthcheck.server.failures,
-                  unhealthyServers.add(_target),
-                  setTunnelHealthy(_target, 0),
-                  serverTargetStructs[_target]?.forEach?.(
-                    t => (
-                      unhealthyTargets.add(t),
-                      setTargetHealthy(t, 0)
-                    )
-                  )
-                )
-              ) : (
-                (pingFailures[key] >= config.tunnel.healthcheck.target.failures) && (
-                  pingFailures[key] = config.tunnel.healthcheck.target.failures,
-                  unhealthyTargets.add(key),
-                  setTargetHealthy(key, 0)
+    .link('pong')
+  ), (
+    $=>$
+  )
+)
+
+.pipeline('pong')
+.handleMessage(
+  msg => (
+    msg?.head?.headers?.['x-pipy-probe'] === 'PONG' && (_probeResult = 1),
+    msg?.head?.headers?.['x-pipy-probe'] === 'FAIL' && (_probeResult = 0),
+    (
+      (key = _path + '@' + _target) => (
+        (_probeResult === 1) ? (
+          isDebugEnabled && (
+            console.log(`[*ping OK*] server: ${_target}, target: ${_path}`)
+          ),
+          delete pingFailures[key],
+          _path === '/' ? (
+            unhealthyServers.delete(_target),
+            setTunnelHealthy(_target, 1)
+          ) : (
+            unhealthyTargets.delete(key),
+            setTargetHealthy(key, 1)
+          )
+        ) : (
+          pingFailures[key] = (pingFailures[key] | 0) + 1,
+          isDebugEnabled && (
+            console.log(`[*ping FAIL*] server: ${_target}, target: ${_path}, times: ${pingFailures[key]}`)
+          ),
+          (_path === '/') ? (
+            (pingFailures[key] >= config.tunnel.healthcheck.server.failures) && (
+              pingFailures[key] = config.tunnel.healthcheck.server.failures,
+              unhealthyServers.add(_target),
+              setTunnelHealthy(_target, 0),
+              serverTargetStructs[_target]?.forEach?.(
+                t => (
+                  unhealthyTargets.add(t),
+                  setTargetHealthy(t, 0)
                 )
               )
             )
+          ) : (
+            (pingFailures[key] >= config.tunnel.healthcheck.target.failures) && (
+              pingFailures[key] = config.tunnel.healthcheck.target.failures,
+              unhealthyTargets.add(key),
+              setTargetHealthy(key, 0)
+            )
           )
-        )()
+        )
       )
-    )
-  ), (
-      $=>$
+    )()
   )
 )
 
@@ -486,17 +600,22 @@
 .task(config?.tunnel?.healthcheck?.server?.interval)
 .onStart(
   () => (
+    _serverPromises = [],
     (_skipTask = (__thread.id !== 0)) ? (
-      _probeCounter = { jobCount: 0 },
       new StreamEnd
     ) : (
-      (jobs = null) => (
+      (jobs = null, promise, resolve) => (
         jobs = Object.keys(tunnelServers).filter(
           e => tunnelServers[e].weight > 0
         ).map(
-          e => new Message({ path: '/', target: e })
+          e => (
+            promise = new Promise(
+              r => resolve = r
+            ),
+            _serverPromises.push(promise),
+            new Message({ path: '/', target: e, resolve })
+          )
         ),
-        _probeCounter = { jobCount: jobs.length },
         isDebugEnabled && (jobs.length > 0) && (
           console.log(`[*Timer*] ping server count : ${jobs.length}`)
         ),
@@ -510,20 +629,27 @@
     $=>$
     .demux().to(
       $=>$
+      .handleMessage(
+        msg => (
+          (_resolve = msg?.head?.resolve) && (
+            delete msg.head.resolve
+          )
+        )
+      )
       .link('ping')
       .replaceStreamEnd(
         () => (
-          _probeCounter.jobCount--,
+          _resolve?.(),
           new Message
         )
       )
     )
   ), (
-      $=>$
+    $=>$
   )
 )
 .wait(
-  () => _probeCounter.jobCount <= 0
+  () => Promise.all(_serverPromises)
 )
 .replaceMessage(
   () => new StreamEnd
@@ -532,19 +658,24 @@
 .task('1s')
 .onStart(
   () => (
+    _targetPromises = [],
     (_skipTask = (__thread.id !== 0)) ? (
-      _probeCounter = { jobCount: 0 },
       new StreamEnd
     ) : (
-      (jobs = null, exist = {}) => (
+      (jobs = null, exist = {}, promise, resolve) => (
         probeIndex >= slotCount && (probeIndex = 0),
         jobs = (slotArray[probeIndex] || []).filter(
           e => (!exist[e.key] && !unhealthyServers.has(e.server.target)) ? (exist[e.key] = true) : false
         ).map(
-          e => new Message({ path: e.path, target: e.server.target })
+          e => (
+            promise = new Promise(
+              r => resolve = r
+            ),
+            _targetPromises.push(promise),
+            new Message({ path: e.path, target: e.server.target, resolve})
+          )
         ),
         probeIndex++,
-        _probeCounter = { jobCount: jobs.length },
         isDebugEnabled && (jobs.length > 0) && (
           console.log(`[*Timer*] ping target count : ${jobs.length}`)
         ),
@@ -558,20 +689,27 @@
     $=>$
     .demux().to(
       $=>$
+      .handleMessage(
+        msg => (
+          (_resolve = msg?.head?.resolve) && (
+            delete msg.head.resolve
+          )
+        )
+      )
       .link('ping')
       .replaceStreamEnd(
         () => (
-          _probeCounter.jobCount--,
+          _resolve?.(),
           new Message
         )
       )
     )
   ), (
-      $=>$
+    $=>$
   )
 )
 .wait(
-  () => _probeCounter.jobCount <= 0
+  () => Promise.all(_targetPromises)
 )
 .replaceMessage(
   () => new StreamEnd
