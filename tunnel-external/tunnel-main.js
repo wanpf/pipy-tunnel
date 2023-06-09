@@ -235,7 +235,7 @@
           )
         )
       )
-      .listen(v.shadowPort, { protocol: 'tcp', readTimeout: 60, idleTimeout: 60, ...v })
+      .listen('127.0.0.1:' + v.shadowPort, { protocol: 'tcp', readTimeout: 60, idleTimeout: 60, ...v })
       .onStart(new Data)
       .branch(
         () => swapStructs[addr], (
@@ -263,6 +263,54 @@
           connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
           readTimeout: config?.tunnel?.healthcheck.readTimeout
         }
+      )
+    )
+  )
+)
+
+.pipeline('direct')
+.onStart(new Data)
+.muxHTTP(() => _tunnel, { version: 2 }).to($=>$
+  .branch(
+    () => _backend, (
+      $=>$.branch(
+        () => _backend.server.tlsCert, (
+          $=>$.connectTLS({
+            certificate: () => ({
+              cert: _backend.server.tlsCert,
+              key: _backend.server.tlsKey,
+            }),
+            trusted: listIssuingCA,
+          }).to($=>$.link('upstream'))
+        ), (
+          $=>$.link('upstream')
+        )
+      )
+    ), (
+      $=>$.branch(
+        () => _tunnel?.tlsCert, (
+          $=>$.connectTLS({
+            certificate: () => ({
+              cert: _tunnel.tlsCert,
+              key: _tunnel.tlsKey,
+            }),
+            trusted: listIssuingCA,
+          }).to(
+            $=>$.connect(() => _target,
+              {
+                connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
+                readTimeout: config?.tunnel?.healthcheck.readTimeout
+              }
+            )
+          )
+        ), (
+          $=>$.connect(() => _target,
+            {
+              connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
+              readTimeout: config?.tunnel?.healthcheck.readTimeout
+            }
+          )
+        )
       )
     )
   )
@@ -402,21 +450,7 @@
     () => _tunnel?.shadowPort, (
       $=>$.link('shadow')
     ), (
-      $=>$.muxHTTP(() => _backend, { version: 2 }).to(
-        $=>$.branch(
-          () => _backend.server.tlsCert, (
-            $=>$.connectTLS({
-              certificate: () => ({
-                cert: _backend.server.tlsCert,
-                key: _backend.server.tlsKey,
-              }),
-              trusted: listIssuingCA,
-            }).to($=>$.link('upstream'))
-          ), (
-            $=>$.link('upstream')
-          )
-        )
-      )
+      $=>$.link('direct')
     )
   )
 )
@@ -520,34 +554,8 @@
     .link('pong')
   ),
   () => Boolean(_target), (
-    $=>$.muxHTTP(() => _target, { version: 2 }).to(
-      $=>$
-      .branch(
-        () => _tunnel?.tlsCert, (
-          $=>$.connectTLS({
-            certificate: () => ({
-              cert: _tunnel.tlsCert,
-              key: _tunnel.tlsKey,
-            }),
-            trusted: listIssuingCA,
-          }).to(
-            $=>$.connect(() => _target,
-              {
-                connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
-                readTimeout: config?.tunnel?.healthcheck.readTimeout
-              }
-            )
-          )
-        ), (
-          $=>$.connect(() => _target,
-            {
-              connectTimeout: config?.tunnel?.healthcheck.connectTimeout,
-              readTimeout: config?.tunnel?.healthcheck.readTimeout
-            }
-          )
-        )
-      )
-    )
+    $=>$
+    .link('direct')
     .link('pong')
   ), (
     $=>$

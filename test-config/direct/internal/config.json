@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "127.0.0.1:8000": {
+      "idleTimeout": "300s",
+      "tlsCert": "tls/server1.crt",
+      "tlsKey": "tls/server1.key",
+      "tlsCA": "tls/server1.ca",
+      "readTimeout": "30s",
+      "writeTimeout": "30s"
+    }
+  },
+  "policies": {
+    "connectRetry": 1
+  },
+  "global": {
+    "enableDebug": false
+  }
+}

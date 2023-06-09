@@ -33,7 +33,7 @@
       )()
     )
   ), __thread.id === 0),
-  $=>$.listen(config.healthcheck.port).use('tunnel-main.js', 'healthcheck')
+  $=>$.listen('127.0.0.1:' + config.healthcheck.port).use('tunnel-main.js', 'healthcheck')
 )
 
 ))()

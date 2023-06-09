@@ -1,0 +1,85 @@
+{
+  "loadBalancers": {
+    "127.0.0.1:6000": {
+      "mode": "rr",
+      "sticky": false,
+      "targets": {
+        "127.0.0.1:22": 100,
+        "127.0.0.1:33": 100
+      },
+      "bpsLimit": -1,
+      "maxConnections": -1,
+      "idleTimeout": "300s",
+      "serviceId": 1,
+      "serviceName": "svc-1"
+    }
+  },
+  "tunnel": {
+    "servers": {
+      "127.0.0.1:8000": {
+        "name": "tunnel-1",
+        "weight": 100,
+        "tlsCert": "tls/server1.crt",
+        "tlsKey": "tls/server1.key",
+        "tlsCA": "tls/server1.ca"
+      }
+    },
+    "policies": {
+      "connectRetry": 0
+    },
+    "healthcheck": {
+      "server": {
+        "failures": 2,
+        "interval": "3s"
+      },
+      "target": {
+        "failures": 1,
+        "interval": "15s"
+      },
+      "connectTimeout": "1s",
+      "readTimeout": "5s"
+    }
+  },
+  "healthcheck": {
+    "host": "localhost",
+    "port": 8888,
+    "interval": "1s"
+  },
+  "healthcheckLog": [
+    {
+      "url": "http://192.168.123.1:8123/?query=insert%20into%20healthcheckLog(message)%20format%20JSONAsString",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Basic ZGVmYXVsdDoxMjM0NTY="
+      },
+      "batch": {
+        "timeout": 1,
+        "interval": 1,
+        "size": 100,
+        "prefix": "[",
+        "postfix": "]",
+        "separator": ","
+      }
+    }
+  ],
+  "accessLog": [
+    {
+      "url": "http://192.168.123.1:8123/?query=insert%20into%20log(message)%20format%20JSONAsString",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Basic ZGVmYXVsdDoxMjM0NTY="
+      },
+      "batch": {
+        "timeout": 1,
+        "interval": 1,
+        "size": 100,
+        "prefix": "[",
+        "postfix": "]",
+        "separator": ","
+      }
+    }
+  ],
+  "global": {
+    "enableDebug": true
+  }
+}
