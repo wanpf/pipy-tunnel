@@ -30,6 +30,7 @@
   pipyReceiveTargetBytesTotalCounter = new stats.Counter('pipy_receive_target_bytes_total', ['serviceId', 'tunnelName', 'target']),
   pipySendTunnelBytesTotalCounter = new stats.Counter('pipy_send_tunnel_bytes_total', ['serviceId', 'tunnelName', 'target']),
   pipyReceiveTunnelBytesTotalCounter = new stats.Counter('pipy_receive_tunnel_bytes_total', ['serviceId', 'tunnelName', 'target']),
+  targetActiveHealthcheckGauge = new stats.Gauge('pipy_tunnel_healthcheck_total', ['target', 'serviceId']),
 
   logger = config?.healthcheckLog?.reduce?.(
     (logger, target) => (
@@ -43,13 +44,26 @@
     new logging.JSONLogger('healthcheck')
   ),
 
-  log = (upstream, target, status) => (
-    logger?.log?.({
-      upstream: upstream,
-      target: target,
-      state: (status === 1) ? 'healthy' : 'unhealthy',
-      timestamp: Date.now(),
-    })
+  log = (upstream, target, status, serviceId, serviceName) => (
+    logger?.log?.(
+      serviceId ? (
+        {
+          upstream: upstream,
+          target: target,
+          state: (status === 1) ? 'healthy' : 'unhealthy',
+          serviceId,
+          serviceName,
+          timestamp: Date.now(),
+        }
+      ) : (
+        {
+          upstream: upstream,
+          target: target,
+          state: (status === 1) ? 'healthy' : 'unhealthy',
+          timestamp: Date.now(),
+        }
+      )
+    )
   ),
 
   accessLog = config?.accessLog?.reduce?.(
@@ -71,9 +85,14 @@
 
   setTargetHealthy = (key, status) => (
     key && (
-      (items = key.split('@')) => (
+      (items = key.split('@'), svc = fullTargetStructs[key]?.load) => (
         pipyTunnelTargetHealthyGauge.withLabels(tunnelServers[items[1]]?.name, items[0]).set(status),
-        log(tunnelServers[items[1]]?.name, items[0], status)
+        status ? (
+          targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).increase()
+        ) : (
+          targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).zero()
+        ),
+        log(tunnelServers[items[1]]?.name, items[0], status, svc?.serviceId, svc?.serviceName)
       )
     )()
   ),
@@ -342,6 +361,12 @@
   () => (
     accessLog && (
       _accessLogStruct = {trace: {id: algo.uuid()}},
+      _accessLogStruct.req = {protocol: 'Tunnel', path: __inbound.localAddress},
+      _accessLogStruct.sid = __inbound.id,
+      _accessLogStruct.iid = os.env.LB_ID || config.instanceID || '',
+      _accessLogStruct.dir = 'ingress',
+      _accessLogStruct.proto = 'Tunnel',
+      _accessLogStruct.node = {ip: os.env.NODE_IP || '127.0.0.1'},
       _accessLogStruct.localAddr = __inbound.localAddress,
       _accessLogStruct.localPort = __inbound.localPort,
       _accessLogStruct.remoteAddr = __inbound.remoteAddress,
@@ -363,16 +388,17 @@
         pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
         pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
         accessLog && (
+          _accessLogStruct.target = _backend.path,
+          _accessLogStruct.x_parameters = { tunnelid: _backend.load.serviceId },
           _accessLogStruct.tunnel = {
-            serviceName: config.loadBalancers[_loadBalancerAddr]?.serviceName,
+            serviceName: _backend.load.serviceName,
             tunnelName: _backend.server.name,
             target: _backend.path,
             blocked: _isBlocked,
           }
         )
       )
-    ),
-    accessLog && accessLog.log(_accessLogStruct)
+    )
   )
 )
 .branch(
@@ -404,7 +430,10 @@
 .branch(
   () => _isBlocked || !Boolean(_backend), (
     $=>$.replaceStreamStart(
-      () => new StreamEnd('ConnectionReset')
+      () => (
+        accessLog?.log?.(_accessLogStruct),
+        new StreamEnd('ConnectionReset')
+      )
     )
   ), (
     $=>$.link('pass')
