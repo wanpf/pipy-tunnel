@@ -1,7 +1,22 @@
 ((
   { config } = pipy.solve('config.js'),
   { loadBalancers } = pipy.solve('tunnel-init.js'),
-) => (pipy()
+  bindingIpAddresses = ((addresses) => (
+    addresses = config.network.virtual_ip_addresses.map(ip => ip.concat('/32')),
+    (os.env.SOURCE_IP_POOL) && (addresses.push(os.env.SOURCE_IP_POOL)),
+    addresses
+  ))(),
+) => (
+branch(
+  __thread.id === 0,
+  () => (
+    bindingIpAddresses.forEach(
+      ip => pipy.exec(`ip addr add ${ip} dev lo`)
+    )
+  )
+),
+
+pipy()
 
 .repeat(
   Object.entries(config.loadBalancers),

@@ -83,5 +83,11 @@
   ],
   "global": {
     "enableDebug": false
+  },
+  "network": {
+    "virtual_ip_addresses": [
+      "127.0.0.211"
+    ],
+    "interval": "30s"
   }
 }
