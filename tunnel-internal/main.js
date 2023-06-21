@@ -33,10 +33,10 @@ pipy()
               }),
               trusted: config?.reverseServer?.tlsCA ? [new crypto.Certificate(pipy.load(config?.reverseServer?.tlsCA))] : [],
             }).to($=>$
-              .connect(() => config?.reverseServer?.target, { protocol: 'tcp', ...config?.reverseServer, retryCount: 1, retryDelay: 1 })
+              .connect(() => config?.reverseServer?.target, { protocol: 'tcp', retryCount: 1, retryDelay: 1, ...config?.reverseServer })
             )
           ), ($=>$
-            .connect(() => config?.reverseServer?.target, { protocol: 'tcp', ...config?.reverseServer, retryCount: 1, retryDelay: 1 })
+            .connect(() => config?.reverseServer?.target, { protocol: 'tcp', retryCount: 1, retryDelay: 1, ...config?.reverseServer })
           )
         )
         .use('tunnel-main.js', 'tunneling')
