@@ -53,7 +53,7 @@ pipy()
 .repeat(
   Object.entries(config.servers || {}),
   ($, [addr, v])=>$
-    .listen(addr, { protocol: 'tcp', ...v })
+    .listen(addr, { protocol: 'tcp', ...v, ...(v.maxConnections > 0 && { maxConnections: Math.ceil(v.maxConnections / __thread.concurrency) }) })
     .onStart(new Data)
     .use('tunnel-main.js', 'startup')
 )
