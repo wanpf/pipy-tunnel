@@ -2,7 +2,7 @@
   { config } = pipy.solve('config.js'),
   { loadBalancers } = pipy.solve('tunnel-init.js'),
   bindingIpAddresses = ((addresses) => (
-    addresses = config.network.virtual_ip_addresses.map(ip => ip.concat('/32')),
+    addresses = (config?.network?.virtual_ip_addresses || []).map(ip => ip.concat('/32')),
     (os.env.SOURCE_IP_POOL) && (addresses.push(os.env.SOURCE_IP_POOL)),
     addresses
   ))(),
