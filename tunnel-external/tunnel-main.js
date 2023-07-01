@@ -8,6 +8,7 @@
     listIssuingCA,
     tunnelServers,
     fullTargetStructs,
+    fullTargetServices,
     serverTargetStructs,
     unhealthyTargetCache,
     unhealthyTargetTTLCache,
@@ -85,14 +86,20 @@
 
   setTargetHealthy = (key, status) => (
     key && (
-      (items = key.split('@'), svc = fullTargetStructs[key]?.load) => (
+      (items = key.split('@'), serviceIds = Object.keys(fullTargetServices[key])) => (
         pipyTunnelTargetHealthyGauge.withLabels(tunnelServers[items[1]]?.name, items[0]).set(status),
         status ? (
-          targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).increase()
+          serviceIds.forEach(
+            serviceId => targetActiveHealthcheckGauge.withLabels(items[0], serviceId).increase()
+          )
         ) : (
-          targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).zero()
+          serviceIds.forEach(
+            serviceId => targetActiveHealthcheckGauge.withLabels(items[0], serviceId).zero()
+          )
         ),
-        log(tunnelServers[items[1]]?.name, items[0], status, svc?.serviceId, svc?.serviceName)
+        Object.values(fullTargetServices[key]).forEach(
+          svc => log(tunnelServers[items[1]]?.name, items[0], status, svc?.serviceId, svc?.serviceName)
+        )
       )
     )()
   ),

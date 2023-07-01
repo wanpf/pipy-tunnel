@@ -30,6 +30,8 @@
 
     fullTargetStructs = {},
 
+    fullTargetServices = {},
+
     serverTargetStructs = {},
 
     unhealthyTargetCache = new algo.Cache(),
@@ -69,6 +71,8 @@
                         (weight > 0) && (
                           targets[key] = weight,
                           fullTargetStructs[key] = { key, name: k, path: t, load: v, server: n },
+                          !fullTargetServices[key] && (fullTargetServices[key] = {}),
+                          fullTargetServices[key][v.serviceId] = v,
                           !serverTargetStructs[s] && (serverTargetStructs[s] = []),
                           serverTargetStructs[s].push(key),
                           !slotArray[slotIndex] && (slotArray[slotIndex] = []),
@@ -107,6 +111,7 @@
       listIssuingCA,
       tunnelServers,
       fullTargetStructs,
+      fullTargetServices,
       serverTargetStructs,
       unhealthyTargetCache,
       unhealthyTargetTTLCache,
