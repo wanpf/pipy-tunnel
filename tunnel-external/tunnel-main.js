@@ -8,7 +8,6 @@
     listIssuingCA,
     tunnelServers,
     fullTargetStructs,
-    fullTargetServices,
     serverTargetStructs,
     unhealthyTargetCache,
     unhealthyTargetTTLCache,
@@ -86,19 +85,17 @@
 
   setTargetHealthy = (key, status) => (
     key && (
-      (items = key.split('@'), serviceIds = Object.keys(fullTargetServices[key])) => (
+      (items = key.split('@'), services = fullTargetStructs[key]?.balancers) => (
         pipyTunnelTargetHealthyGauge.withLabels(tunnelServers[items[1]]?.name, items[0]).set(status),
-        status ? (
-          serviceIds.forEach(
-            serviceId => targetActiveHealthcheckGauge.withLabels(items[0], serviceId).increase()
+        services.forEach(
+          svc => (
+            status ? (
+              targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).increase()
+            ) : (
+              targetActiveHealthcheckGauge.withLabels(items[0], svc?.serviceId).zero()
+            ),
+            log(tunnelServers[items[1]]?.name, items[0], status, svc?.serviceId, svc?.serviceName)
           )
-        ) : (
-          serviceIds.forEach(
-            serviceId => targetActiveHealthcheckGauge.withLabels(items[0], serviceId).zero()
-          )
-        ),
-        Object.values(fullTargetServices[key]).forEach(
-          svc => log(tunnelServers[items[1]]?.name, items[0], status, svc?.serviceId, svc?.serviceName)
         )
       )
     )()
@@ -216,7 +213,7 @@
   _backend: undefined,
   _tunnel: undefined,
   _balancer: undefined,
-  _serviceId: undefined,
+  _service: undefined,
   _loadBalancerAddr: undefined,
   _skipTask: true,
   _probeResult: undefined,
@@ -381,24 +378,24 @@
       _accessLogStruct.reqTime = Date.now()
     ),
     _loadBalancerAddr = `${__inbound.localAddress}:${__inbound.localPort}`,
-    (_serviceId = config.loadBalancers[_loadBalancerAddr]?.serviceId) || (
+    (_service = config.loadBalancers[_loadBalancerAddr]) || (
       _loadBalancerAddr = __inbound.localPort,
-      _serviceId = config.loadBalancers[_loadBalancerAddr]?.serviceId
+      _service = config.loadBalancers[_loadBalancerAddr]
     ),
-    _serviceId && (
+    _service && (
       _bpsLimit = config.loadBalancers[_loadBalancerAddr]?.bpsLimit,
       _balancer = loadBalancers[_loadBalancerAddr],
       _target = _balancer?.borrow?.(__inbound, (config.loadBalancers[_loadBalancerAddr]?.sticky ? __inbound.remoteAddress : null), unhealthyTargetTTLCache),
       _target?.id && (_backend = fullTargetStructs[_target.id]) && (
         _tunnel = _backend.server,
-        _isBlocked = !checkIpList(_backend.load.serviceName, __inbound.remoteAddress),
-        pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
-        pipyTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
+        _isBlocked = !checkIpList(_service.serviceName, __inbound.remoteAddress),
+        pipyActiveConnectionGauge.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(),
+        pipyTotalConnectionCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(),
         accessLog && (
           _accessLogStruct.target = _backend.path,
-          _accessLogStruct.x_parameters = { tunnelid: _backend.load.serviceId },
+          _accessLogStruct.x_parameters = { tunnelid: _service.serviceId },
           _accessLogStruct.tunnel = {
-            serviceName: _backend.load.serviceName,
+            serviceName: _service.serviceName,
             tunnelName: _backend.server.name,
             target: _backend.path,
             blocked: _isBlocked,
@@ -465,7 +462,7 @@
 )
 .handleStreamEnd(
   () => _backend && (
-    pipyActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).decrease()
+    pipyActiveConnectionGauge.withLabels(_service.serviceId, _backend.server.name, _backend.path).decrease()
   )
 )
 
@@ -473,7 +470,7 @@
 .handleData(
   data => (
     _reqRawSize += data.size,
-    pipySendTargetBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
+    pipySendTargetBytesTotalCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
 .connectHTTPTunnel(
@@ -493,7 +490,7 @@
 .handleData(
   data => (
     _resRawSize += data.size,
-    pipyReceiveTargetBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
+    pipyReceiveTargetBytesTotalCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
 .handleStreamEnd(
@@ -521,14 +518,14 @@
 .pipeline('upstream')
 .handleStreamStart(
   () => (
-    pipyTunnelActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).increase(),
-    pipyTunnelTotalConnectionCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase()
+    pipyTunnelActiveConnectionGauge.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(),
+    pipyTunnelTotalConnectionCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase()
   )
 )
 .handleData(
   data => (
     _reqSize += data.size,
-    pipySendTunnelBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
+    pipySendTunnelBytesTotalCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
 .branch(
@@ -541,7 +538,7 @@
 .handleData(
   data => (
     _resSize += data.size,
-    pipyReceiveTunnelBytesTotalCounter.withLabels(_serviceId, _backend.server.name, _backend.path).increase(data.size)
+    pipyReceiveTunnelBytesTotalCounter.withLabels(_service.serviceId, _backend.server.name, _backend.path).increase(data.size)
   )
 )
 .handleStreamEnd(
@@ -563,7 +560,7 @@
         )
       )
     )() : delete accessFailures[_backend.server.target],
-    pipyTunnelActiveConnectionGauge.withLabels(_serviceId, _backend.server.name, _backend.path).decrease()
+    pipyTunnelActiveConnectionGauge.withLabels(_service.serviceId, _backend.server.name, _backend.path).decrease()
   )
 )
 

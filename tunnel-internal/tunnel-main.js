@@ -87,7 +87,7 @@
 .demux().to(
   $=>$
   .replaceMessage(
-    () => [new Data, new StreamEnd]
+    () => new Data
   )
   .connect(() => _path,
     {

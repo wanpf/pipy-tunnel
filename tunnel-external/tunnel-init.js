@@ -30,8 +30,6 @@
 
     fullTargetStructs = {},
 
-    fullTargetServices = {},
-
     serverTargetStructs = {},
 
     unhealthyTargetCache = new algo.Cache(),
@@ -70,9 +68,11 @@
                         weight = w * n.weight,
                         (weight > 0) && (
                           targets[key] = weight,
-                          fullTargetStructs[key] = { key, name: k, path: t, load: v, server: n },
-                          !fullTargetServices[key] && (fullTargetServices[key] = {}),
-                          fullTargetServices[key][v.serviceId] = v,
+                          !fullTargetStructs[key] ? (
+                            fullTargetStructs[key] = { key, path: t, balancers: [v], server: n }
+                          ) : (
+                            fullTargetStructs[key].balancers.push(v)
+                          ),
                           !serverTargetStructs[s] && (serverTargetStructs[s] = []),
                           serverTargetStructs[s].push(key),
                           !slotArray[slotIndex] && (slotArray[slotIndex] = []),
@@ -111,7 +111,6 @@
       listIssuingCA,
       tunnelServers,
       fullTargetStructs,
-      fullTargetServices,
       serverTargetStructs,
       unhealthyTargetCache,
       unhealthyTargetTTLCache,
